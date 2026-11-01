@@ -62,7 +62,10 @@ param(
 
     # Only the folders (mods, config, ...) + the mod loader installer; installs nothing,
     # no Java, no start scripts. Handy for a hosting panel.
-    [switch]$FilesOnly
+    [switch]$FilesOnly,
+
+    # Don't open the download page of mods that couldn't be downloaded automatically
+    [switch]$NoBrowser
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +127,16 @@ function Test-ServerContent([string]$Jar) {
         }
         return $false
     } finally { $z.Dispose() }
+}
+
+# Download page of one mod file. curseforge.com/projects/<id> only knows the project,
+# so look up the slug (cfwidget) to link straight to the right file.
+function Get-ModFilePage($ProjectId, $FileId) {
+    try {
+        $url = (Get-Json "https://api.cfwidget.com/$ProjectId").urls.curseforge
+        if ($url) { return "$url/files/$FileId" }
+    } catch { }
+    return "https://www.curseforge.com/projects/$ProjectId"
 }
 
 function Get-JavaMajor([string]$Exe) {
@@ -192,6 +205,7 @@ New-Item -ItemType Directory -Force $ModsDir | Out-Null
 
 $skipped = New-Object System.Collections.Generic.List[string]
 $failed = New-Object System.Collections.Generic.List[string]
+$failedUrls = New-Object System.Collections.Generic.List[string]
 $keptTagged = New-Object System.Collections.Generic.List[string]
 $n = 0
 $total = @($manifest.files).Count
@@ -243,7 +257,9 @@ foreach ($f in $manifest.files) {
 
         [IO.File]::Copy($cached, (Join-Path $ModsDir $name), $true)
     } catch {
-        $failed.Add("project $pid_ / file $fid ($($_.Exception.Message)) -> https://www.curseforge.com/projects/$pid_")
+        $page = Get-ModFilePage $pid_ $fid
+        $failedUrls.Add($page)
+        $failed.Add("project $pid_ / file $fid ($($_.Exception.Message)) -> $page")
         Write-Host ("[{0}/{1}] FAILED project {2} file {3}" -f $n, $total, $pid_, $fid) -ForegroundColor Red
     }
 }
@@ -418,6 +434,14 @@ if ($failed.Count) {
     Write-Host "FAILED: $($failed.Count) mods - download these by hand into extra-mods\ and run again:" -ForegroundColor Red
     $failed | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     $failed | Set-Content (Join-Path $OutDir 'failed-mods.txt') -Encoding UTF8
+    if (-not $NoBrowser) {
+        # Open each download page + the extra-mods folder to drop the jars into
+        Write-Host "Opening the download pages in your browser..." -ForegroundColor Yellow
+        $failedUrls | Select-Object -Unique | ForEach-Object {
+            try { Start-Process $_ } catch { Write-Warning "Couldn't open $_" }
+        }
+        try { Start-Process explorer.exe $extra } catch { }
+    }
 }
 if ($FilesOnly) {
     Write-Host 'Files only: mod loader not installed, no start scripts/eula written.' -ForegroundColor Yellow

@@ -67,6 +67,7 @@ Once you've accepted the EULA, rebuilding without the flag keeps `eula=true`.
 | `-ExcludeMods` | `--exclude` | extra regex for mods that must not go on the server |
 | `-KeepClientMods` | `--keep-client-mods` | turn off the client-only filter |
 | `-FilesOnly` | `--files-only` | only the folders + mod loader installer (for hosting panels) |
+| `-NoBrowser` | `--no-browser` | don't open the download page of mods that failed to download |
 
 ## Updating
 
@@ -79,4 +80,6 @@ Put your own server-only mods in `GSPackServer/extra-mods/`; they're copied in o
 - **"Channel … is missing on the server side"** when joining: a mod that was skipped as client-only
   is needed on the server after all. Check `skipped-client-mods.txt` and put the jar in `extra-mods/`,
   or run with `-KeepClientMods`.
-- **A mod fails to download**: it's listed in `failed-mods.txt`. Download it by hand into `extra-mods/`.
+- **A mod fails to download**: the script opens the CurseForge download page of that exact
+  mod version in your browser (on Windows also the `extra-mods\` folder). Download the jar into
+  `extra-mods/` and run the script again. The links are also in `failed-mods.txt`.
