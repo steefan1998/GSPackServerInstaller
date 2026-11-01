@@ -22,8 +22,9 @@ The server goes into its own folder: **`GSPackServer/`** next to the script.
 
 ### Windows
 
-Double-click `Build-ServerPack.bat` to build from the latest GSPack on CurseForge
-(or drag a pack zip onto it). Or run:
+Double-click `Build-ServerPack.bat`. It builds from the newest `GSPack-*.zip` next to the
+script or in your Downloads folder (e.g. `GSPack-0.2.zip`); without one it fetches the latest
+GSPack from CurseForge. You can also drag any pack zip onto it. Or run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Build-ServerPack.ps1 -AcceptEula
