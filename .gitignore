@@ -1,0 +1,5 @@
+# Gebouwde servers en download-cache
+*Server/
+.cache/
+*.log
+logs/
