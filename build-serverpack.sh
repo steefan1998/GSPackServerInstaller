@@ -7,12 +7,12 @@
 # Requires: bash, curl, unzip, jq   (Debian/Ubuntu: sudo apt install curl unzip jq)
 #
 # Usage:
-#   ./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula
-#   ./build-serverpack.sh --project 1234567 --accept-eula        # straight from CurseForge
+#   ./build-serverpack.sh --accept-eula                          # latest GSPack from CurseForge
+#   ./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula     # from a local zip
 #
 # Options:
-#   --zip PATH           CurseForge export zip (client pack)
-#   --project ID         CurseForge project ID of the modpack
+#   --zip PATH           CurseForge export zip (client pack); without it the pack is fetched
+#   --project ID         CurseForge project ID of the modpack (default: 1777849 = GSPack)
 #   --file ID            specific file ID of the pack (default: latest)
 #   --out DIR            output folder (default: ./<PackName>Server, e.g. ./GSPackServer)
 #   --accept-eula        set eula=true (https://aka.ms/MinecraftEULA)
@@ -28,7 +28,7 @@ UA='Mozilla/5.0 (GSPack server builder)'
 CF='https://www.curseforge.com/api/v1'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-ZIP= PROJECT= FILEID= OUT= EULA=false RAM= JAVA_ARG= KEEP_CLIENT=false FILES_ONLY=false
+ZIP= PROJECT=1777849 FILEID= OUT= EULA=false RAM= JAVA_ARG= KEEP_CLIENT=false FILES_ONLY=false
 EXCLUDES=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,7 +46,6 @@ while [ $# -gt 0 ]; do
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
-if [ -z "$ZIP" ] && [ -z "$PROJECT" ]; then echo "Pass --zip or --project (see --help)" >&2; exit 1; fi
 for bin in curl unzip jq; do
   command -v "$bin" >/dev/null || { echo "'$bin' is missing. Install: sudo apt install curl unzip jq" >&2; exit 1; }
 done
@@ -66,7 +65,7 @@ CACHE="$SCRIPT_DIR/.cache"; MODCACHE="$CACHE/mods"; META="$CACHE/meta"
 mkdir -p "$MODCACHE" "$META"
 
 # 1. Get the client pack -----------------------------------------------------
-if [ -n "$PROJECT" ]; then
+if [ -z "$ZIP" ]; then
   step "Fetching modpack from CurseForge (project $PROJECT)"
   if [ -z "$FILEID" ]; then
     FILEID="$(getjson "$CF/mods/$PROJECT/files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true" \
@@ -280,6 +279,8 @@ EOF
   printf '@echo off\r\ncd /d "%%~dp0"\r\nset JAVA=java\r\nif exist "%%~dp0java\\bin\\java.exe" set "JAVA=%%~dp0java\\bin\\java.exe"\r\n:start\r\n"%%JAVA%%" @user_jvm_args.txt %s %%*\r\necho.\r\necho Server stopped. Restarting in 10 seconds, press Ctrl+C to quit.\r\ntimeout /t 10\r\ngoto start\r\n' \
     "$LAUNCH_WIN" > "$OUT/start.bat"
 
+  # Keep an EULA that was already accepted when rebuilding without --accept-eula
+  grep -q '^eula=true' "$OUT/eula.txt" 2>/dev/null && EULA=true
   printf '# https://aka.ms/MinecraftEULA\neula=%s\n' "$EULA" > "$OUT/eula.txt"
   rm -f "$OUT/run.sh" "$OUT/run.bat"
 fi

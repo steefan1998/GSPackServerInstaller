@@ -5,7 +5,8 @@ Works on **Windows** (PowerShell) and **Linux/macOS** (bash). No CurseForge API 
 
 ## What it does
 
-1. Gets the pack: a local CurseForge export zip, or straight from CurseForge by project ID
+1. Gets the pack: the latest GSPack straight from CurseForge
+   ([project 1777849](https://www.curseforge.com/projects/1777849)), or a local export zip
 2. Downloads every mod in `manifest.json`
    - client-only mods (Sodium, Iris, FancyMenu, …) and resource/shader packs are left out
    - mods tagged client-only on CurseForge that do contain blocks/recipes
@@ -21,10 +22,11 @@ The server goes into its own folder: **`GSPackServer/`** next to the script.
 
 ### Windows
 
-Drag the pack zip onto `Build-ServerPack.bat`, or run:
+Double-click `Build-ServerPack.bat` to build from the latest GSPack on CurseForge
+(or drag a pack zip onto it). Or run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -AcceptEula
+powershell -ExecutionPolicy Bypass -File .\Build-ServerPack.ps1 -AcceptEula
 ```
 
 Start it with `GSPackServer\start.bat`.
@@ -34,26 +36,30 @@ Start it with `GSPackServer\start.bat`.
 ```bash
 sudo apt install curl unzip jq        # once (Debian/Ubuntu)
 chmod +x build-serverpack.sh
-./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula
+./build-serverpack.sh --accept-eula
 ```
 
 Start it with `GSPackServer/start.sh`.
 
-### Straight from CurseForge
+### From a local zip or another modpack
 
 ```powershell
+.\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -AcceptEula
 .\Build-ServerPack.ps1 -ProjectId <id> -AcceptEula
 ```
 ```bash
+./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula
 ./build-serverpack.sh --project <id> --accept-eula
 ```
+
+Once you've accepted the EULA, rebuilding without the flag keeps `eula=true`.
 
 ## Options
 
 | PowerShell | bash | Meaning |
 |---|---|---|
-| `-Zip` | `--zip` | CurseForge export zip |
-| `-ProjectId` / `-FileId` | `--project` / `--file` | pack from CurseForge (latest version by default) |
+| `-Zip` | `--zip` | build from a local CurseForge export zip |
+| `-ProjectId` / `-FileId` | `--project` / `--file` | CurseForge pack (default `1777849` = GSPack, latest version) |
 | `-OutDir` | `--out` | output folder (default `GSPackServer`) |
 | `-AcceptEula` | `--accept-eula` | sets `eula=true` ([Minecraft EULA](https://aka.ms/MinecraftEULA)) |
 | `-RamMB` | `--ram` | memory in MB (default 8192 = 8 GB) |

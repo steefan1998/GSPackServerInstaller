@@ -3,7 +3,7 @@
     Builds a ready-to-run Minecraft server from a CurseForge modpack (GSPack).
 
 .DESCRIPTION
-    1. Gets the client zip (local file or from CurseForge by project ID)
+    1. Gets the client zip (from CurseForge, GSPack by default, or a local file)
     2. Downloads every mod in manifest.json and filters out client-only mods
     3. Copies overrides (config, kubejs, ...) and any server-overrides
     4. Installs the mod loader (NeoForge / Forge / Fabric)
@@ -16,28 +16,30 @@
     on every run from the manifest (+ the extra-mods\ folder, see below).
 
 .EXAMPLE
+    # Latest GSPack straight from CurseForge (project 1777849):
+    .\Build-ServerPack.ps1 -AcceptEula
+
+.EXAMPLE
+    # From a local export zip:
     .\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -AcceptEula
 
 .EXAMPLE
-    # Straight from CurseForge:
+    # Another CurseForge modpack:
     .\Build-ServerPack.ps1 -ProjectId 1234567 -AcceptEula
 
 .EXAMPLE
     # Only the folders + NeoForge installer (install it yourself / through your host)
     .\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -FilesOnly
 #>
-[CmdletBinding(DefaultParameterSetName = 'Zip')]
+[CmdletBinding()]
 param(
-    # Path to the CurseForge export zip (client pack)
-    [Parameter(ParameterSetName = 'Zip', Mandatory = $true)]
+    # Path to a CurseForge export zip (client pack); without it the pack is fetched from CurseForge
     [string]$Zip,
 
-    # CurseForge project ID of the modpack
-    [Parameter(ParameterSetName = 'CurseForge', Mandatory = $true)]
-    [int]$ProjectId,
+    # CurseForge project ID of the modpack (default: GSPack)
+    [int]$ProjectId = 1777849,
 
     # Specific file ID of the pack (default: latest release)
-    [Parameter(ParameterSetName = 'CurseForge')]
     [int]$FileId,
 
     # Server output folder (default: .\<PackName>Server next to this script, e.g. GSPackServer)
@@ -143,7 +145,7 @@ $MetaCache = Join-Path $Cache 'meta'
 New-Item -ItemType Directory -Force $ModCache, $MetaCache | Out-Null
 
 # 1. Get the client pack -----------------------------------------------------
-if ($PSCmdlet.ParameterSetName -eq 'CurseForge') {
+if (-not $Zip) {
     Write-Step "Fetching modpack from CurseForge (project $ProjectId)"
     if (-not $FileId) {
         $files = Get-Json "$CfSite/mods/$ProjectId/files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true"
@@ -394,8 +396,11 @@ done
 "@
     [IO.File]::WriteAllText((Join-Path $OutDir 'start.sh'), ($sh -replace "`r`n", "`n"))
 
+    # Keep an EULA that was already accepted when rebuilding without -AcceptEula
+    $eulaFile = Join-Path $OutDir 'eula.txt'
+    if ((Test-Path $eulaFile) -and (Select-String -Path $eulaFile -Pattern '^eula=true' -Quiet)) { $AcceptEula = $true }
     $eula = if ($AcceptEula) { 'true' } else { 'false' }
-    "# https://aka.ms/MinecraftEULA`r`neula=$eula`r`n" | Set-Content (Join-Path $OutDir 'eula.txt') -Encoding ASCII
+    "# https://aka.ms/MinecraftEULA`r`neula=$eula`r`n" | Set-Content $eulaFile -Encoding ASCII
 
     # Remove the NeoForge/Forge installer's own run scripts (start.bat replaces them)
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $OutDir 'run.bat'), (Join-Path $OutDir 'run.sh')
