@@ -22,13 +22,14 @@
 #   --keep-client-mods   skip the client-only filter
 #   --files-only         only the folders (mods, config, ...) + mod loader installer;
 #                        installs nothing, no Java, no start scripts
+#   --no-browser         don't open the download page of mods that failed to download
 set -euo pipefail
 
 UA='Mozilla/5.0 (GSPack server builder)'
 CF='https://www.curseforge.com/api/v1'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-ZIP= PROJECT=1777849 FILEID= OUT= EULA=false RAM= JAVA_ARG= KEEP_CLIENT=false FILES_ONLY=false
+ZIP= PROJECT=1777849 FILEID= OUT= EULA=false RAM= JAVA_ARG= KEEP_CLIENT=false FILES_ONLY=false NO_BROWSER=false
 EXCLUDES=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,7 +43,8 @@ while [ $# -gt 0 ]; do
     --exclude) EXCLUDES+=("$2"); shift 2 ;;
     --keep-client-mods) KEEP_CLIENT=true; shift ;;
     --files-only) FILES_ONLY=true; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    --no-browser) NO_BROWSER=true; shift ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -59,6 +61,13 @@ dl() { # dl URL DEST  (with retries, follows redirects)
   curl -fsSL --retry 3 --retry-delay 2 -A "$UA" -o "$2.part" "$1" && mv -f "$2.part" "$2"
 }
 getjson() { curl -fsSL --retry 3 --retry-delay 2 -A "$UA" "$1"; }
+# Download page of one mod file. curseforge.com/projects/<id> only knows the project,
+# so look up the slug (cfwidget) to link straight to the right file.
+modpage() { # modpage PROJECT FILE
+  local url
+  url="$(getjson "https://api.cfwidget.com/$1" 2>/dev/null | jq -r '.urls.curseforge // empty' 2>/dev/null)" || url=
+  if [ -n "$url" ]; then echo "$url/files/$2"; else echo "https://www.curseforge.com/projects/$1"; fi
+}
 
 # Cache lives next to the script so the server folder stays clean
 CACHE="$SCRIPT_DIR/.cache"; MODCACHE="$CACHE/mods"; META="$CACHE/meta"
@@ -117,7 +126,7 @@ while read -r pid fid; do
   if [ ! -s "$metaf" ]; then
     if ! getjson "$CF/mods/$pid/files/$fid" | jq '.data' > "$metaf.part"; then
       rm -f "$metaf.part"
-      echo "project $pid / file $fid (couldn't fetch info) -> https://www.curseforge.com/projects/$pid" >> "$FAILED"
+      echo "project $pid / file $fid (couldn't fetch info) -> $(modpage "$pid" "$fid")" >> "$FAILED"
       printf '\033[31m[%s/%s] FAILED project %s file %s\033[0m\n' "$n" "$TOTAL" "$pid" "$fid"; continue
     fi
     mv -f "$metaf.part" "$metaf"
@@ -136,7 +145,7 @@ while read -r pid fid; do
   if [ ! -f "$cached" ] || [ "$(wc -c < "$cached" | tr -d ' ')" != "$size" ]; then
     echo "[$n/$TOTAL] download $name"
     if ! dl "$CF/mods/$pid/files/$fid/download" "$cached"; then
-      echo "project $pid / file $fid ($name) -> https://www.curseforge.com/projects/$pid" >> "$FAILED"
+      echo "project $pid / file $fid ($name) -> $(modpage "$pid" "$fid")" >> "$FAILED"
       printf '\033[31m[%s/%s] FAILED %s\033[0m\n' "$n" "$TOTAL" "$name"; continue
     fi
   else
@@ -295,6 +304,16 @@ rm -f "$OUT/failed-mods.txt"
 if [ -s "$FAILED" ]; then
   printf '\033[31mFAILED: %s mods - download these by hand into extra-mods/ and run again:\033[0m\n' "$(wc -l < "$FAILED" | tr -d ' ')"
   sed 's/^/  /' "$FAILED"; cp "$FAILED" "$OUT/failed-mods.txt"
+  if [ "$NO_BROWSER" = false ]; then
+    # Open each download page in the browser (only when there's a desktop)
+    opener=
+    if [ "$(uname)" = Darwin ]; then opener=open
+    elif command -v xdg-open >/dev/null && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then opener=xdg-open; fi
+    if [ -n "$opener" ]; then
+      printf '\033[33mOpening the download pages in your browser...\033[0m\n'
+      sed 's/.*-> //' "$FAILED" | sort -u | while read -r url; do "$opener" "$url" >/dev/null 2>&1 || true; done
+    fi
+  fi
 fi
 rm -f "$SKIPPED" "$FAILED" "$KEPT"
 if [ "$FILES_ONLY" = true ]; then
