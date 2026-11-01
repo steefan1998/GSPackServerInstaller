@@ -21,7 +21,7 @@
 
 .EXAMPLE
     # From a local export zip:
-    .\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -AcceptEula
+    .\Build-ServerPack.ps1 -Zip .\GSPack-0.2.zip -AcceptEula
 
 .EXAMPLE
     # Another CurseForge modpack:
@@ -29,7 +29,7 @@
 
 .EXAMPLE
     # Only the folders + NeoForge installer (install it yourself / through your host)
-    .\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -FilesOnly
+    .\Build-ServerPack.ps1 -Zip .\GSPack-0.2.zip -FilesOnly
 #>
 [CmdletBinding()]
 param(
@@ -288,7 +288,9 @@ if (-not $KeepClientMods) {
 $java = $null
 if (-not $FilesOnly) {
     Write-Step 'Checking Java'
+    # Fallback if Mojang can't be reached: 26.x (GSPack 0.2+) needs Java 25, older needs 21
     $javaNeeded = 21
+    if ([int]($mcVersion -split '\.')[0] -ge 26) { $javaNeeded = 25 }
     try {
         $vm = Get-Json 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
         $v = $vm.versions | Where-Object { $_.id -eq $mcVersion } | Select-Object -First 1

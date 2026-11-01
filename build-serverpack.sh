@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./build-serverpack.sh --accept-eula                          # latest GSPack from CurseForge
-#   ./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula     # from a local zip
+#   ./build-serverpack.sh --zip GSPack-0.2.zip --accept-eula     # from a local zip
 #
 # Options:
 #   --zip PATH           CurseForge export zip (client pack); without it the pack is fetched
@@ -188,9 +188,11 @@ fi
 JAVA=
 if [ "$FILES_ONLY" = false ]; then
   step 'Checking Java'
+  # Fallback if Mojang can't be reached: 26.x (GSPack 0.2+) needs Java 25, older needs 21
   JAVA_NEEDED=21
+  [ "${MC%%.*}" -ge 26 ] 2>/dev/null && JAVA_NEEDED=25
   if vurl="$(getjson https://piston-meta.mojang.com/mc/game/version_manifest_v2.json | jq -r --arg v "$MC" '.versions[] | select(.id == $v) | .url' | head -1)" && [ -n "$vurl" ]; then
-    JAVA_NEEDED="$(getjson "$vurl" | jq -r '.javaVersion.majorVersion // 21')"
+    JAVA_NEEDED="$(getjson "$vurl" | jq -r --arg d "$JAVA_NEEDED" '.javaVersion.majorVersion // ($d | tonumber)')"
   fi
   echo "Minecraft $MC needs Java $JAVA_NEEDED"
 

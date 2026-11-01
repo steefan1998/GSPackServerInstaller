@@ -44,11 +44,11 @@ Start it with `GSPackServer/start.sh`.
 ### From a local zip or another modpack
 
 ```powershell
-.\Build-ServerPack.ps1 -Zip .\GSPack-0.1.zip -AcceptEula
+.\Build-ServerPack.ps1 -Zip .\GSPack-0.2.zip -AcceptEula
 .\Build-ServerPack.ps1 -ProjectId <id> -AcceptEula
 ```
 ```bash
-./build-serverpack.sh --zip GSPack-0.1.zip --accept-eula
+./build-serverpack.sh --zip GSPack-0.2.zip --accept-eula
 ./build-serverpack.sh --project <id> --accept-eula
 ```
 
