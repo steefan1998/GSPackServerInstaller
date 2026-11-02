@@ -19,6 +19,8 @@
 # PowerShell 7 runs it on Linux too:  pwsh -File convert-world.ps1 -World ./server
 param([string]$World = '', [string]$KubeJS = '', [switch]$DryRun, [switch]$Interactive, [switch]$Pick)
 $ErrorActionPreference = 'Stop'
+# Problems are shown as one plain message (not a PowerShell error with a stack trace) and exit with code 1.
+trap { Write-Host ''; Write-Host $_.Exception.Message -ForegroundColor Yellow; exit 1 }
 
 if ($Interactive) {
     if ($Pick) {
@@ -33,6 +35,7 @@ if ($Interactive) {
     }
     $common = @{ World = $World }; if ($KubeJS) { $common.KubeJS = $KubeJS }
     & $PSCommandPath @common -DryRun
+    if ($LASTEXITCODE) { exit 1 }   # the dry run explained the problem
     ''
     $answer = Read-Host 'Convert the world now? Changed files are backed up first. [y/N]'
     if ($answer -match '^(y|j)') { & $PSCommandPath @common } else { 'Nothing changed.' }
@@ -48,7 +51,13 @@ if (-not (Test-Path (Join-Path $World 'level.dat')) -and (Test-Path (Join-Path $
     if (-not $level) { $level = 'world' }
     $World = Join-Path $World $level
 }
-if (-not (Test-Path (Join-Path $World 'level.dat'))) { throw "No world in $World (no level.dat). Start the server once to create its world, or point -World at a world folder." }
+if (-not (Test-Path (Join-Path $World 'level.dat'))) {
+    # A server folder that was never started (start.bat but no world), or the world folder named in server.properties.
+    if ((Test-Path (Join-Path $World 'start.bat')) -or (Test-Path (Join-Path (Split-Path $World -Parent) 'server.properties'))) {
+        throw "This server has no world yet: it was never started, so there is nothing to convert.`nA world that is created with GSPack 0.5 or newer doesn't need converting; only worlds from 0.4 or older do.`n($World has no level.dat)"
+    }
+    throw "No Minecraft world in $World (there is no level.dat).`nChoose a server folder (the one with server.properties) or a world folder (the one with level.dat)."
+}
 if (-not $KubeJS) {
     $KubeJS = @((Join-Path (Split-Path $World -Parent) 'kubejs'), (Join-Path (Split-Path (Split-Path $World -Parent) -Parent) 'kubejs'),
         (Join-Path (Split-Path $PSScriptRoot -Parent) 'kubejs')) | Where-Object { Test-Path (Join-Path (Join-Path $_ 'startup_scripts') 'gspack_unify_table.js') } | Select-Object -First 1
