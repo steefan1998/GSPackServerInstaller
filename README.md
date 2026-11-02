@@ -31,6 +31,7 @@ It shows the installed version and the newest one on CurseForge, and lets you:
 - build or update to the latest version, pick an older version, or use a local zip
 - set the RAM, accept the EULA, turn the mod download pages on/off, or build files only
 - start the server and open the server folder, with the build output shown live
+- convert an older world to GSPack 0.5's unified materials (*Convert world*, see below)
 
 **Menu:** double-click `Build-ServerPack.bat` for the same options in a text menu:
 
@@ -42,6 +43,7 @@ It shows the installed version and the newest one on CurseForge, and lets you:
   5  Open the server folder
   6  Files only (for a hosting panel)
   7  Settings  (RAM, EULA, open mod pages)
+  8  Convert the world  (GSPack 0.5)
   0  Exit
 ```
 
@@ -109,6 +111,27 @@ Every build checks CurseForge: it shows `Updating server: GSPack 0.2 -> GSPack 0
 the menu, or Build in the GUI). Downloads are cached in `.cache/`, so it's quick.
 `mods/` is rebuilt every time; your world, `server.properties` and whitelist are left alone.
 Put your own server-only mods in `GSPackServer/extra-mods/`; they're copied in on every build.
+
+## Converting a world (GSPack 0.5)
+
+GSPack 0.5 unifies materials: one item per metal, dust or plate (AllTheOres first), and ores that
+AllTheOres also has no longer generate. A world from an older version still holds the old blocks and
+items. The pack converts them while you play, but **Convert-World** converts the whole world at once,
+also areas nobody visits. Update the server to 0.5 first, then **stop it** and use one of:
+
+- **GUI:** the *Convert world* button: pick the server or world folder in File Explorer
+- **Menu:** option `8` in `Build-ServerPack.bat` (Enter = this server, `B` = browse for a folder)
+- **Windows:** double-click `Convert-World.bat` and pick the folder in File Explorer, or drag a server or world folder onto it
+- **Linux / macOS:** `./convert-world.sh [server folder]` (needs [PowerShell 7](https://aka.ms/powershell), `pwsh`)
+- **Directly:** `powershell -ExecutionPolicy Bypass -File .\Convert-World.ps1 -World <server or world folder> [-DryRun]`
+  (`-Interactive` = dry run first, then ask; `-Pick` = choose the folder in File Explorer)
+
+It always shows a dry run first and asks before writing. It converts placed blocks in every dimension,
+items in chests and machines, dropped items, player inventories and saved mod data, and refuses to run
+while the world is open. Every file it changes is copied to `<world>/gspack-convert-backup` first; delete
+that folder once the world works. It reads the id tables from the server's `kubejs` folder, so the
+server must be on GSPack 0.5 or newer. `Convert-World.ps1` is the same file as `tools/convert-world.ps1`
+in the [GSPack repository](https://github.com/steefan1998/GSPack).
 
 ## Troubleshooting
 

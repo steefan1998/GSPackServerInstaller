@@ -42,7 +42,7 @@ namespace GSPackInstaller
         ComboBox versionCombo;
         NumericUpDown ramBox;
         CheckBox eulaCheck, browserCheck, filesOnlyCheck;
-        Button buildButton, startButton, folderButton, refreshButton, stopButton, consoleButton;
+        Button buildButton, startButton, folderButton, refreshButton, stopButton, consoleButton, convertButton;
         Process running;
         ConsoleForm console;
         List<PackRelease> releases = new List<PackRelease>();
@@ -121,9 +121,24 @@ namespace GSPackInstaller
             stopButton.Click += delegate { StopBuild(); };
             startButton = new Button { Text = "Start server", Location = new Point(290, 318), Size = new Size(130, 34) };
             startButton.Click += delegate { StartServer(); };
-            consoleButton = new Button { Text = "Server console", Location = new Point(582, 318), Size = new Size(140, 34) };
+            consoleButton = new Button { Text = "Server console", Location = new Point(572, 318), Size = new Size(126, 34) };
             consoleButton.Click += delegate { OpenConsole(); };
-            folderButton = new Button { Text = "Open server folder", Location = new Point(426, 318), Size = new Size(150, 34) };
+            // Convert-World.bat: converts the world to GSPack 0.5's unified materials (dry run first, then asks).
+            convertButton = new Button { Text = "Convert world", Location = new Point(704, 318), Size = new Size(104, 34) };
+            convertButton.Click += delegate {
+                string bat = Path.Combine(appDir, "Convert-World.bat");
+                if (!File.Exists(bat)) { MessageBox.Show(this, "Convert-World.bat was not found next to this program:\n" + appDir, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                // Pick the server (or world) folder in File Explorer; it starts at this server's folder.
+                string folder;
+                using (var dialog = new FolderBrowserDialog { Description = "Choose the server folder (or a world folder) to convert to GSPack 0.5's unified materials. Stop the server first.", ShowNewFolderButton = false }) {
+                    if (Directory.Exists(serverDirBox.Text)) dialog.SelectedPath = serverDirBox.Text;
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    folder = dialog.SelectedPath;
+                }
+                // The bat runs a dry run first and asks before it writes anything; changed files are backed up.
+                Process.Start(new ProcessStartInfo("cmd.exe", "/c \"\"" + bat + "\" \"" + folder + "\"\"") { UseShellExecute = true });
+            };
+            folderButton = new Button { Text = "Open server folder", Location = new Point(426, 318), Size = new Size(140, 34) };
             folderButton.Click += delegate {
                 if (Directory.Exists(serverDirBox.Text)) Process.Start("explorer.exe", "\"" + serverDirBox.Text + "\"");
                 else MessageBox.Show(this, "There is no server folder yet. Build the server first.", Text);
@@ -134,7 +149,7 @@ namespace GSPackInstaller
                 Font = new Font("Consolas", 9f), BackColor = Color.FromArgb(20, 20, 28), ForeColor = Color.Gainsboro, WordWrap = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
 
-            body.Controls.AddRange(new Control[] { folderGroup, packGroup, setGroup, buildButton, stopButton, startButton, folderButton, consoleButton, log });
+            body.Controls.AddRange(new Control[] { folderGroup, packGroup, setGroup, buildButton, stopButton, startButton, folderButton, consoleButton, convertButton, log });
             ActiveControl = buildButton;
 
             Shown += delegate {

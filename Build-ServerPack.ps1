@@ -228,6 +228,7 @@ if ($Menu) {
         Write-Host '  5  Open the server folder'
         Write-Host '  6  Files only (for a hosting panel)'
         Write-Host "  7  Settings  (RAM $([math]::Round($ram / 1024, 1)) GB, EULA $(if ($eulaOk) { 'accepted' } else { 'not accepted' }), open mod pages $(if ($browser) { 'on' } else { 'off' }))"
+        Write-Host '  8  Convert the world  (GSPack 0.5 material unification, server must be stopped)'
         Write-Host '  0  Exit'
         Write-Host ''
         $c = Read-Host 'Choice'
@@ -266,6 +267,14 @@ if ($Menu) {
                 if (Test-Path $serverDir) { Start-Process explorer.exe $serverDir } else { Write-Host 'No server folder yet.' -ForegroundColor Red }
             }
             '6' { Invoke-Build @{ FilesOnly = $true } }
+            '8' {
+                # Convert-World.ps1 (the same tool as tools/convert-world.ps1 in the GSPack repository):
+                # a dry run first, then convert after a yes. B picks another folder in File Explorer.
+                $cw = Join-Path $PSScriptRoot 'Convert-World.ps1'
+                $a = Read-Host "Enter = convert this server ($serverDir), B = browse for a folder"
+                if ($a -match '^b') { & powershell -NoProfile -ExecutionPolicy Bypass -File $cw -Interactive -Pick -World $serverDir }
+                else { & powershell -NoProfile -ExecutionPolicy Bypass -File $cw -Interactive -World $serverDir }
+            }
             '7' {
                 $a = Read-Host "RAM in GB (now $([math]::Round($ram / 1024, 1)), Enter = keep)"
                 $g = 0.0
