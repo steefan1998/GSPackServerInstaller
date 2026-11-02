@@ -3,3 +3,7 @@
 .cache/
 *.log
 logs/
+
+# Built GUI (in the release zip) and its generated icon
+GSPackInstaller.exe
+gui/GSPack.ico

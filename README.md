@@ -5,8 +5,10 @@ Works on **Windows** (PowerShell) and **Linux/macOS** (bash). No CurseForge API 
 
 ## What it does
 
-1. Gets the pack: the latest GSPack straight from CurseForge
-   ([project 1777849](https://www.curseforge.com/projects/1777849)), or a local export zip
+1. Gets the pack: the latest GSPack release straight from CurseForge
+   ([project 1777849](https://www.curseforge.com/projects/1777849)), any older release you pick,
+   or a local export zip. Dev builds (alphas) are never used. It tells you when a newer
+   version is on CurseForge than the one you're building or have installed.
 2. Downloads every mod in `manifest.json`
    - client-only mods (Sodium, Iris, FancyMenu, …) and resource/shader packs are left out
    - mods tagged client-only on CurseForge that do contain blocks/recipes
@@ -15,6 +17,7 @@ Works on **Windows** (PowerShell) and **Linux/macOS** (bash). No CurseForge API 
 4. Installs the mod loader (NeoForge, Forge or Fabric)
 5. Downloads a portable Java (Temurin) if the right version is missing
 6. Writes `start.bat` / `start.sh` (with auto-restart), `user_jvm_args.txt` (8 GB RAM) and `eula.txt`
+7. Adds the GSPack `server-icon.png` (64×64) for the server list, unless the server already has one
 
 The server goes into its own folder: **`GSPackServer/`** next to the script.
 
@@ -22,15 +25,36 @@ The server goes into its own folder: **`GSPackServer/`** next to the script.
 
 ### Windows
 
-Double-click `Build-ServerPack.bat`. It builds from the newest `GSPack-*.zip` next to the
-script or in your Downloads folder (e.g. `GSPack-0.2.zip`); without one it fetches the latest
-GSPack from CurseForge. You can also drag any pack zip onto it. Or run:
+**Program (GUI):** start `GSPackInstaller.exe` (in the release zip; keep it next to the scripts).
+It shows the installed version and the newest one on CurseForge, and lets you:
+
+- build or update to the latest version, pick an older version, or use a local zip
+- set the RAM, accept the EULA, turn the mod download pages on/off, or build files only
+- start the server and open the server folder, with the build output shown live
+
+**Menu:** double-click `Build-ServerPack.bat` for the same options in a text menu:
+
+```
+  1  Build / update to the latest version
+  2  Choose a version
+  3  Build from a local zip
+  4  Start the server
+  5  Open the server folder
+  6  Files only (for a hosting panel)
+  7  Settings  (RAM, EULA, open mod pages)
+  0  Exit
+```
+
+Dragging a pack zip onto `Build-ServerPack.bat` builds from that zip right away. Or run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Build-ServerPack.ps1 -AcceptEula
 ```
 
 Start it with `GSPackServer\start.bat`.
+
+To build the GUI yourself: `powershell -ExecutionPolicy Bypass -File gui\build-gui.ps1`
+(uses the C# compiler that comes with Windows).
 
 ### Linux / macOS
 
@@ -42,13 +66,17 @@ chmod +x build-serverpack.sh
 
 Start it with `GSPackServer/start.sh`.
 
-### From a local zip or another modpack
+### A specific version, a local zip or another modpack
 
 ```powershell
+.\Build-ServerPack.ps1 -ListVersions
+.\Build-ServerPack.ps1 -Version 0.3 -AcceptEula
 .\Build-ServerPack.ps1 -Zip .\GSPack-0.2.zip -AcceptEula
 .\Build-ServerPack.ps1 -ProjectId <id> -AcceptEula
 ```
 ```bash
+./build-serverpack.sh --list
+./build-serverpack.sh --version 0.3 --accept-eula
 ./build-serverpack.sh --zip GSPack-0.2.zip --accept-eula
 ./build-serverpack.sh --project <id> --accept-eula
 ```
@@ -61,6 +89,9 @@ Once you've accepted the EULA, rebuilding without the flag keeps `eula=true`.
 |---|---|---|
 | `-Zip` | `--zip` | build from a local CurseForge export zip |
 | `-ProjectId` / `-FileId` | `--project` / `--file` | CurseForge pack (default `1777849` = GSPack, latest version) |
+| `-Version` | `--version` | pack version from CurseForge, e.g. `0.3` (default: latest release) |
+| `-ListVersions` | `--list` | list the versions on CurseForge and the installed one |
+| `-Menu` | | the text menu (what `Build-ServerPack.bat` opens) |
 | `-OutDir` | `--out` | output folder (default `GSPackServer`) |
 | `-AcceptEula` | `--accept-eula` | sets `eula=true` ([Minecraft EULA](https://aka.ms/MinecraftEULA)) |
 | `-RamMB` | `--ram` | memory in MB (default 8192 = 8 GB) |
@@ -72,7 +103,10 @@ Once you've accepted the EULA, rebuilding without the flag keeps `eula=true`.
 
 ## Updating
 
-Run the script again with the new pack zip. Downloads are cached in `.cache/`, so it's quick.
+Every build checks CurseForge: it shows `Updating server: GSPack 0.2 -> GSPack 0.4`, or
+`Update available` when you build an older version. The installed version is kept in
+`GSPackServer/pack-version.txt`. To update, build again without `-Zip` / `-Version` (or choose 1 in
+the menu, or Build in the GUI). Downloads are cached in `.cache/`, so it's quick.
 `mods/` is rebuilt every time; your world, `server.properties` and whitelist are left alone.
 Put your own server-only mods in `GSPackServer/extra-mods/`; they're copied in on every build.
 

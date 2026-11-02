@@ -20,6 +20,11 @@
     .\Build-ServerPack.ps1 -AcceptEula
 
 .EXAMPLE
+    # A specific GSPack version, or list the versions on CurseForge:
+    .\Build-ServerPack.ps1 -Version 0.3 -AcceptEula
+    .\Build-ServerPack.ps1 -ListVersions
+
+.EXAMPLE
     # From a local export zip:
     .\Build-ServerPack.ps1 -Zip .\GSPack-0.2.zip -AcceptEula
 
@@ -41,6 +46,12 @@ param(
 
     # Specific file ID of the pack (default: latest release)
     [int]$FileId,
+
+    # Pack version from CurseForge, e.g. 0.3 (default: latest release)
+    [string]$Version,
+
+    # Only list the pack versions on CurseForge and the one installed in the server folder
+    [switch]$ListVersions,
 
     # Server output folder (default: .\<PackName>Server next to this script, e.g. GSPackServer)
     [string]$OutDir,
@@ -65,7 +76,10 @@ param(
     [switch]$FilesOnly,
 
     # Don't open the download page of mods that couldn't be downloaded automatically
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+
+    # Interactive menu (what Build-ServerPack.bat opens on a double-click)
+    [switch]$Menu
 )
 
 $ErrorActionPreference = 'Stop'
@@ -139,6 +153,13 @@ function Get-ModFilePage($ProjectId, $FileId) {
     return "https://www.curseforge.com/projects/$ProjectId"
 }
 
+# "GSPack 0.4" / "GSPack-0.4.zip" / "0.4" -> [version] 0.4 (null if there's no number)
+function Get-PackVersion([string]$Text) {
+    if ($Text -match '(\d+(\.\d+)+)') { return [version]$Matches[1] }
+    if ($Text -match '(\d+)') { return [version]"$($Matches[1]).0" }
+    return $null
+}
+
 function Get-JavaMajor([string]$Exe) {
     if (-not $Exe -or -not (Test-Path $Exe)) { return 0 }
     $out = & cmd /c "`"$Exe`" -version 2>&1"
@@ -150,6 +171,118 @@ function Get-JavaMajor([string]$Exe) {
     return 0
 }
 
+# Version recorded by the previous build of this server (pack-version.txt)
+function Get-InstalledVersion([string]$Dir) {
+    if (-not $Dir) { return $null }
+    $f = Join-Path $Dir 'pack-version.txt'
+    if (Test-Path $f) { return (Get-Content $f -TotalCount 1) }
+}
+
+# ---------------------------------------------------------------------------
+# Interactive menu: every choice runs this script again with the right options
+if ($Menu) {
+    $serverDir = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } else { Join-Path $PSScriptRoot 'GSPackServer' }
+    $ram = if ($RamMB) { $RamMB } else { 8192 }
+    $eulaOk = [bool]$AcceptEula
+    $browser = -not $NoBrowser
+
+    function Get-Releases {
+        try {
+            $r = Get-Json "$CfSite/mods/$ProjectId/files?pageIndex=0&pageSize=50&sort=dateCreated&sortDescending=true&removeAlphas=true"
+            return @($r.data | Where-Object { $_.fileName -like '*.zip' })
+        } catch { return @() }
+    }
+    function Invoke-Build([hashtable]$Extra) {
+        $p = @{ ProjectId = $ProjectId; OutDir = $serverDir; RamMB = $ram }
+        if ($eulaOk) { $p.AcceptEula = $true }
+        if (-not $browser) { $p.NoBrowser = $true }
+        foreach ($k in $Extra.Keys) { $p[$k] = $Extra[$k] }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @p
+        if ($LASTEXITCODE -ne 0) { Write-Host "Build stopped with an error (exit $LASTEXITCODE)." -ForegroundColor Red }
+    }
+    function Read-Choice([string]$Prompt, [int]$Max) {
+        $a = Read-Host $Prompt
+        $n = 0
+        if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $Max) { return $n }
+        return 0
+    }
+
+    while ($true) {
+        Clear-Host
+        $releases = Get-Releases
+        $installed = Get-InstalledVersion $serverDir
+        $newest = if ($releases.Count) { $releases[0].displayName } else { '(CurseForge not reachable)' }
+        $update = $releases.Count -and $installed -and ((Get-PackVersion $releases[0].displayName) -gt (Get-PackVersion $installed))
+        Write-Host '=============================================' -ForegroundColor Cyan
+        Write-Host '  GSPack Server Installer' -ForegroundColor Cyan
+        Write-Host '=============================================' -ForegroundColor Cyan
+        Write-Host "  Server folder : $serverDir"
+        Write-Host "  Installed     : $(if ($installed) { $installed } else { 'nothing yet' })"
+        Write-Host "  On CurseForge : $newest"
+        if ($update) { Write-Host "  >> Update available: $installed -> $newest" -ForegroundColor Yellow }
+        Write-Host ''
+        Write-Host '  1  Build / update to the latest version'
+        Write-Host '  2  Choose a version'
+        Write-Host '  3  Build from a local zip'
+        Write-Host '  4  Start the server'
+        Write-Host '  5  Open the server folder'
+        Write-Host '  6  Files only (for a hosting panel)'
+        Write-Host "  7  Settings  (RAM $([math]::Round($ram / 1024, 1)) GB, EULA $(if ($eulaOk) { 'accepted' } else { 'not accepted' }), open mod pages $(if ($browser) { 'on' } else { 'off' }))"
+        Write-Host '  0  Exit'
+        Write-Host ''
+        $c = Read-Host 'Choice'
+        $pause = $true
+        switch ($c) {
+            '1' { Invoke-Build @{} }
+            '2' {
+                if (-not $releases.Count) { Write-Host 'CurseForge not reachable.' -ForegroundColor Red; break }
+                for ($i = 0; $i -lt $releases.Count; $i++) { Write-Host ("  {0,2}  {1}  ({2:yyyy-MM-dd})" -f ($i + 1), $releases[$i].displayName, [datetime]$releases[$i].dateCreated) }
+                $n = Read-Choice 'Version number' $releases.Count
+                if ($n) { Invoke-Build @{ FileId = $releases[$n - 1].id } }
+            }
+            '3' {
+                $zips = @(Get-ChildItem (Join-Path $PSScriptRoot '*.zip'), (Join-Path $env:USERPROFILE 'Downloads\GSPack*.zip') -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -notmatch 'dev' -and $_.Name -notlike 'GSPackServerInstaller*' } | Sort-Object LastWriteTime -Descending)
+                for ($i = 0; $i -lt $zips.Count; $i++) { Write-Host ("  {0,2}  {1}" -f ($i + 1), $zips[$i].FullName) }
+                $a = Read-Host 'Number, or the full path to a zip'
+                $n = 0
+                $zip = if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $zips.Count) { $zips[$n - 1].FullName } else { $a.Trim('"') }
+                if ($zip -and (Test-Path -LiteralPath $zip)) { Invoke-Build @{ Zip = $zip } } else { Write-Host 'Zip not found.' -ForegroundColor Red }
+            }
+            '4' {
+                $start = Join-Path $serverDir 'start.bat'
+                if (-not (Test-Path $start)) { Write-Host 'No server yet: build it first (1).' -ForegroundColor Red; break }
+                $eulaFile = Join-Path $serverDir 'eula.txt'
+                if (-not (Select-String -Path $eulaFile -Pattern '^eula=true' -Quiet -ErrorAction SilentlyContinue)) {
+                    $a = Read-Host 'Do you accept the Minecraft EULA (https://aka.ms/MinecraftEULA)? [y/N]'
+                    if ($a -notmatch '^(y|j)') { Write-Host 'The server only starts after you accept the EULA.' -ForegroundColor Yellow; break }
+                    "# https://aka.ms/MinecraftEULA`r`neula=true`r`n" | Set-Content $eulaFile -Encoding ASCII
+                    $eulaOk = $true
+                }
+                Start-Process -FilePath $start -WorkingDirectory $serverDir
+                Write-Host 'Server started in its own window.' -ForegroundColor Green
+            }
+            '5' {
+                if (Test-Path $serverDir) { Start-Process explorer.exe $serverDir } else { Write-Host 'No server folder yet.' -ForegroundColor Red }
+            }
+            '6' { Invoke-Build @{ FilesOnly = $true } }
+            '7' {
+                $a = Read-Host "RAM in GB (now $([math]::Round($ram / 1024, 1)), Enter = keep)"
+                $g = 0.0
+                if ($a -and [double]::TryParse($a.Replace(',', '.'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$g) -and $g -ge 1) { $ram = [int]($g * 1024) }
+                $a = Read-Host "Accept the Minecraft EULA (https://aka.ms/MinecraftEULA)? [y/n, Enter = keep]"
+                if ($a -match '^(y|j)') { $eulaOk = $true } elseif ($a -match '^n') { $eulaOk = $false }
+                $a = Read-Host "Open the download page of mods that fail to download? [y/n, Enter = keep]"
+                if ($a -match '^(y|j)') { $browser = $true } elseif ($a -match '^n') { $browser = $false }
+                $pause = $false
+            }
+            '0' { exit 0 }
+            default { $pause = $false }
+        }
+        if ($pause) { Read-Host 'Press Enter to go back to the menu' | Out-Null }
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Cache lives next to the script so the server folder stays clean
 $Cache = Join-Path $PSScriptRoot '.cache'
@@ -158,17 +291,55 @@ $MetaCache = Join-Path $Cache 'meta'
 New-Item -ItemType Directory -Force $ModCache, $MetaCache | Out-Null
 
 # 1. Get the client pack -----------------------------------------------------
+# All pack releases on CurseForge, newest first. Alphas (dev builds) are left out.
+$packFiles = $null
+try {
+    $packFiles = New-Object System.Collections.Generic.List[object]
+    for ($page = 0; $page -lt 20; $page++) {
+        $res = Get-Json "$CfSite/mods/$ProjectId/files?pageIndex=$page&pageSize=50&sort=dateCreated&sortDescending=true&removeAlphas=true"
+        $res.data | Where-Object { $_.fileName -like '*.zip' } | ForEach-Object { $packFiles.Add($_) }
+        if (@($res.data).Count -lt 50) { break }
+    }
+} catch {
+    $packFiles = $null
+    Write-Warning "Couldn't reach CurseForge ($($_.Exception.Message))"
+}
+$latest = if ($packFiles) { $packFiles[0] } else { $null }
+
+if ($ListVersions) {
+    if (-not $packFiles) { throw "Couldn't get the versions from CurseForge" }
+    Write-Step "Pack versions on CurseForge (project $ProjectId)"
+    $packFiles | ForEach-Object { Write-Host ("  {0,-30} file {1}  {2:yyyy-MM-dd}" -f $_.displayName, $_.id, [datetime]$_.dateCreated) }
+    $dir = if ($OutDir) { $OutDir } else { Join-Path $PSScriptRoot 'GSPackServer' }
+    $inst = Get-InstalledVersion $dir
+    if ($inst) { Write-Host "Installed in ${dir}: $inst" }
+    exit 0
+}
+
 if (-not $Zip) {
     Write-Step "Fetching modpack from CurseForge (project $ProjectId)"
-    if (-not $FileId) {
-        $files = Get-Json "$CfSite/mods/$ProjectId/files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true"
-        $latest = $files.data | Where-Object { $_.fileName -like '*.zip' } | Select-Object -First 1
-        if (-not $latest) { throw "No pack file found for project $ProjectId (is it approved yet?)" }
-        $FileId = $latest.id
-        Write-Host "Latest version: $($latest.displayName) (file $FileId)"
+    $pick = $null
+    if ($FileId) {
+        $pick = $packFiles | Where-Object { $_.id -eq $FileId } | Select-Object -First 1
+    } elseif ($Version) {
+        if (-not $packFiles) { throw "Couldn't get the versions from CurseForge" }
+        $pick = $packFiles | Where-Object { (Get-PackVersion $_.displayName) -eq (Get-PackVersion $Version) -or (Get-PackVersion $_.fileName) -eq (Get-PackVersion $Version) } | Select-Object -First 1
+        if (-not $pick) { throw "Version $Version not found on CurseForge. Available: $(($packFiles | ForEach-Object { Get-PackVersion $_.displayName }) -join ', ')" }
+        $FileId = $pick.id
+    } elseif ($latest) {
+        $pick = $latest; $FileId = $latest.id
     }
-    $Zip = Join-Path $Cache "pack-$FileId.zip"
-    if (-not (Test-Path $Zip)) { Invoke-Download "$CfSite/mods/$ProjectId/files/$FileId/download" $Zip }
+    if ($FileId) {
+        if ($pick) { Write-Host "Version: $($pick.displayName) (file $FileId)" }
+        $Zip = Join-Path $Cache "pack-$FileId.zip"
+        if (-not (Test-Path $Zip)) { Invoke-Download "$CfSite/mods/$ProjectId/files/$FileId/download" $Zip }
+    } else {
+        # CurseForge unreachable or nothing published: newest local GSPack-*.zip (no dev builds)
+        $Zip = Get-ChildItem (Join-Path $PSScriptRoot 'GSPack-*.zip'), (Join-Path $env:USERPROFILE 'Downloads\GSPack-*.zip') -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'dev' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $Zip) { throw "No pack found on CurseForge for project $ProjectId and no local GSPack-*.zip. Use -Zip <file>." }
+        Write-Warning "Using local pack instead: $Zip"
+    }
 } else {
     $Zip = (Resolve-Path $Zip).Path
 }
@@ -191,6 +362,20 @@ if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot (($manifest.name -replace 
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 Write-Host "Output folder: $OutDir"
+
+# Update check: what's installed, what's being built and what's newest on CurseForge
+$packLabel = "$($manifest.name) $($manifest.version)"
+$installed = Get-InstalledVersion $OutDir
+if ($installed -and $installed -ne $packLabel) { Write-Host "Updating server: $installed -> $packLabel" -ForegroundColor Green }
+elseif ($installed) { Write-Host "Server already has $packLabel, rebuilding" }
+$newer = $null
+if ($latest -and (Get-PackVersion $latest.displayName) -gt (Get-PackVersion $manifest.version)) { $newer = $latest.displayName }
+if ($newer) {
+    Write-Host "Update available on CurseForge: $newer (you're building $packLabel)." -ForegroundColor Yellow
+    Write-Host "  Run without -Zip / -Version to build the latest." -ForegroundColor Yellow
+} elseif ($latest) {
+    Write-Host "Newest on CurseForge: $($latest.displayName)"
+}
 
 if (-not $RamMB) { $RamMB = 8192 }
 # Write as G when it's a whole number of GB (8192 -> 8G)
@@ -273,6 +458,12 @@ foreach ($ov in @($manifest.overrides, 'server-overrides')) {
         Write-Host "  $ov\ -> server"
         Copy-Item -Recurse -Force (Join-Path $src '*') $OutDir
     }
+}
+# GSPack server icon, unless the server or pack already has one
+$icon = Join-Path $PSScriptRoot 'server-icon.png'
+if ((Test-Path $icon) -and -not (Test-Path (Join-Path $OutDir 'server-icon.png'))) {
+    Copy-Item $icon $OutDir
+    Write-Host '  server-icon.png -> server'
 }
 # Your own server-only mods: put them in <OutDir>\extra-mods, they're kept
 $extra = Join-Path $OutDir 'extra-mods'
@@ -426,8 +617,12 @@ done
 
 # Summary ---------------------------------------------------------------------
 Write-Step 'Done'
+# Remember the pack version for the next update check
+$packLabel | Set-Content (Join-Path $OutDir 'pack-version.txt') -Encoding UTF8
 $modCount = @(Get-ChildItem $ModsDir -Filter *.jar).Count
 Write-Host "Server is in:   $OutDir"
+Write-Host "Pack version:   $packLabel"
+if ($newer) { Write-Host "Update available: $newer" -ForegroundColor Yellow }
 Write-Host "Mods on server: $modCount   (client-only / resource packs skipped: $($skipped.Count))"
 if ($skipped.Count) { [IO.File]::WriteAllLines((Join-Path $OutDir 'skipped-client-mods.txt'), [string[]]($skipped | Sort-Object -Unique)); Write-Host "  list: skipped-client-mods.txt" }
 if ($keptTagged.Count) { Write-Host "Kept on server (client tag, but has content): $($keptTagged -join ', ')" -ForegroundColor Green }

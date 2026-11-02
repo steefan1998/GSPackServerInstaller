@@ -8,12 +8,16 @@
 #
 # Usage:
 #   ./build-serverpack.sh --accept-eula                          # latest GSPack from CurseForge
+#   ./build-serverpack.sh --version 0.3 --accept-eula            # a specific version
+#   ./build-serverpack.sh --list                                 # versions on CurseForge
 #   ./build-serverpack.sh --zip GSPack-0.2.zip --accept-eula     # from a local zip
 #
 # Options:
 #   --zip PATH           CurseForge export zip (client pack); without it the pack is fetched
 #   --project ID         CurseForge project ID of the modpack (default: 1777849 = GSPack)
 #   --file ID            specific file ID of the pack (default: latest)
+#   --version X          pack version from CurseForge, e.g. 0.3 (default: latest release)
+#   --list               only list the versions on CurseForge and the installed one
 #   --out DIR            output folder (default: ./<PackName>Server, e.g. ./GSPackServer)
 #   --accept-eula        set eula=true (https://aka.ms/MinecraftEULA)
 #   --ram MB             memory in MB (default 8192 = 8 GB)
@@ -30,12 +34,15 @@ CF='https://www.curseforge.com/api/v1'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 ZIP= PROJECT=1777849 FILEID= OUT= EULA=false RAM= JAVA_ARG= KEEP_CLIENT=false FILES_ONLY=false NO_BROWSER=false
+VERSION= LIST=false
 EXCLUDES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --zip) ZIP="$2"; shift 2 ;;
     --project) PROJECT="$2"; shift 2 ;;
     --file) FILEID="$2"; shift 2 ;;
+    --version) VERSION="$2"; shift 2 ;;
+    --list) LIST=true; shift ;;
     --out) OUT="$2"; shift 2 ;;
     --accept-eula) EULA=true; shift ;;
     --ram) RAM="$2"; shift 2 ;;
@@ -44,7 +51,7 @@ while [ $# -gt 0 ]; do
     --keep-client-mods) KEEP_CLIENT=true; shift ;;
     --files-only) FILES_ONLY=true; shift ;;
     --no-browser) NO_BROWSER=true; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -74,16 +81,56 @@ CACHE="$SCRIPT_DIR/.cache"; MODCACHE="$CACHE/mods"; META="$CACHE/meta"
 mkdir -p "$MODCACHE" "$META"
 
 # 1. Get the client pack -----------------------------------------------------
+# "GSPack 0.4" / "GSPack-0.4.zip" -> 0.4
+verof() { printf '%s' "$1" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -1 || true; }
+# True if version $1 is newer than $2
+vnewer() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+
+# All pack releases on CurseForge, newest first (id, name). Alphas (dev builds) are left out.
+PACKFILES="$CACHE/packfiles.tsv"; : > "$PACKFILES"
+page=0
+while [ "$page" -lt 20 ]; do
+  if ! res="$(getjson "$CF/mods/$PROJECT/files?pageIndex=$page&pageSize=50&sort=dateCreated&sortDescending=true&removeAlphas=true")"; then
+    printf '\033[33mCouldn'"'"'t reach CurseForge\033[0m\n'; : > "$PACKFILES"; break
+  fi
+  printf '%s' "$res" | jq -r '.data[] | select(.fileName | endswith(".zip")) | "\(.id)\t\(.displayName)\t\(.dateCreated[0:10])"' | tr -d '\r' >> "$PACKFILES"
+  [ "$(printf '%s' "$res" | jq '.data | length')" -ge 50 ] || break
+  page=$((page + 1))
+done
+LATEST_ID="$(head -1 "$PACKFILES" | cut -f1)"; LATEST_NAME="$(head -1 "$PACKFILES" | cut -f2)"
+
+# Version recorded by the previous build of a server folder (pack-version.txt)
+installed_version() { [ -f "$1/pack-version.txt" ] && head -1 "$1/pack-version.txt" | tr -d '\r' || true; }
+
+if [ "$LIST" = true ]; then
+  [ -s "$PACKFILES" ] || { echo "Couldn't get the versions from CurseForge" >&2; exit 1; }
+  step "Pack versions on CurseForge (project $PROJECT)"
+  while IFS=$'\t' read -r id name date; do printf '  %-30s file %s  %s\n' "$name" "$id" "$date"; done < "$PACKFILES"
+  dir="${OUT:-$SCRIPT_DIR/GSPackServer}"
+  inst="$(installed_version "$dir")"
+  [ -z "$inst" ] || echo "Installed in $dir: $inst"
+  exit 0
+fi
+
 if [ -z "$ZIP" ]; then
   step "Fetching modpack from CurseForge (project $PROJECT)"
-  if [ -z "$FILEID" ]; then
-    FILEID="$(getjson "$CF/mods/$PROJECT/files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true" \
-      | jq -r '[.data[] | select(.fileName | endswith(".zip"))][0].id // empty')"
-    [ -n "$FILEID" ] || { echo "No pack file found for project $PROJECT (is it approved yet?)" >&2; exit 1; }
-    echo "Latest version: file $FILEID"
+  if [ -z "$FILEID" ] && [ -n "$VERSION" ]; then
+    [ -s "$PACKFILES" ] || { echo "Couldn't get the versions from CurseForge" >&2; exit 1; }
+    FILEID="$(while IFS=$'\t' read -r id name date; do if [ "$(verof "$name")" = "$(verof "$VERSION")" ]; then echo "$id"; break; fi; done < "$PACKFILES")"
+    [ -n "$FILEID" ] || { echo "Version $VERSION not found on CurseForge. Available: $(cut -f2 "$PACKFILES" | while read -r n; do verof "$n"; done | paste -sd, -)" >&2; exit 1; }
   fi
-  ZIP="$CACHE/pack-$FILEID.zip"
-  [ -f "$ZIP" ] || dl "$CF/mods/$PROJECT/files/$FILEID/download" "$ZIP"
+  FILEID="${FILEID:-$LATEST_ID}"
+  if [ -n "$FILEID" ]; then
+    name="$(awk -F'\t' -v id="$FILEID" '$1 == id { print $2 }' "$PACKFILES")"
+    echo "Version: ${name:-file $FILEID} (file $FILEID)"
+    ZIP="$CACHE/pack-$FILEID.zip"
+    [ -f "$ZIP" ] || dl "$CF/mods/$PROJECT/files/$FILEID/download" "$ZIP"
+  else
+    # CurseForge unreachable or nothing published: newest local GSPack-*.zip (no dev builds)
+    ZIP="$(ls -t "$SCRIPT_DIR"/GSPack-*.zip "$HOME"/Downloads/GSPack-*.zip 2>/dev/null | grep -vi dev | head -1 || true)"
+    [ -n "$ZIP" ] || { echo "No pack found on CurseForge for project $PROJECT and no local GSPack-*.zip. Use --zip FILE." >&2; exit 1; }
+    printf '\033[33mUsing local pack instead: %s\033[0m\n' "$ZIP"
+  fi
 fi
 ZIP="$(cd "$(dirname "$ZIP")" && pwd)/$(basename "$ZIP")"
 
@@ -107,6 +154,17 @@ OUT="${OUT:-$SCRIPT_DIR/$(jq -r '.name' "$MANIFEST" | tr -cd 'A-Za-z0-9_.-')Serv
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 echo "Output folder: $OUT"
+
+# Update check: what's installed, what's being built and what's newest on CurseForge
+PACK_LABEL="$(jq -r '"\(.name) \(.version)"' "$MANIFEST")"
+INSTALLED="$(installed_version "$OUT")"
+if [ -n "$INSTALLED" ] && [ "$INSTALLED" != "$PACK_LABEL" ]; then printf '\033[32mUpdating server: %s -> %s\033[0m\n' "$INSTALLED" "$PACK_LABEL"
+elif [ -n "$INSTALLED" ]; then echo "Server already has $PACK_LABEL, rebuilding"; fi
+NEWER=
+if vnewer "$(verof "$LATEST_NAME")" "$(jq -r '.version' "$MANIFEST")"; then NEWER="$LATEST_NAME"; fi
+if [ -n "$NEWER" ]; then
+  printf '\033[33mUpdate available on CurseForge: %s (you'"'"'re building %s).\n  Run without --zip / --version to build the latest.\033[0m\n' "$NEWER" "$PACK_LABEL"
+elif [ -n "$LATEST_NAME" ]; then echo "Newest on CurseForge: $LATEST_NAME"; fi
 
 # 2. Download mods ------------------------------------------------------------
 step 'Downloading mods'
@@ -173,6 +231,10 @@ step 'Copying overrides'
 for ov in "$(jq -r '.overrides // "overrides"' "$MANIFEST")" server-overrides; do
   if [ -d "$PACK/$ov" ]; then echo "  $ov/ -> server"; cp -rf "$PACK/$ov/." "$OUT/"; fi
 done
+# GSPack server icon, unless the server or pack already has one
+if [ -f "$SCRIPT_DIR/server-icon.png" ] && [ ! -f "$OUT/server-icon.png" ]; then
+  cp "$SCRIPT_DIR/server-icon.png" "$OUT/"; echo '  server-icon.png -> server'
+fi
 # Your own server-only mods: put them in <out>/extra-mods, they're kept
 mkdir -p "$OUT/extra-mods"
 for j in "$OUT"/extra-mods/*.jar; do [ -e "$j" ] && { cp -f "$j" "$MODS/"; echo "  extra mod: $(basename "$j")"; }; done
@@ -298,7 +360,11 @@ fi
 
 # Summary ---------------------------------------------------------------------
 step 'Done'
+# Remember the pack version for the next update check
+echo "$PACK_LABEL" > "$OUT/pack-version.txt"
 echo "Server is in:   $OUT"
+echo "Pack version:   $PACK_LABEL"
+[ -z "$NEWER" ] || printf '\033[33mUpdate available: %s\033[0m\n' "$NEWER"
 echo "Mods on server: $(find "$MODS" -name '*.jar' | wc -l | tr -d ' ')   (client-only / resource packs skipped: $(sort -u "$SKIPPED" | wc -l | tr -d ' '))"
 if [ -s "$SKIPPED" ]; then sort -u "$SKIPPED" > "$OUT/skipped-client-mods.txt"; echo "  list: skipped-client-mods.txt"; fi
 if [ -s "$KEPT" ]; then printf '\033[32mKept on server (client tag, but has content): %s\033[0m\n' "$(paste -sd, "$KEPT")"; fi
