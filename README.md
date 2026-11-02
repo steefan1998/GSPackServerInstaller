@@ -129,8 +129,9 @@ also areas nobody visits. Update the server to 0.5 first, then **stop it** and u
 It always shows a dry run first and asks before writing. It converts placed blocks in every dimension,
 items in chests and machines, dropped items, player inventories and saved mod data, and refuses to run
 while the world is open. Every file it changes is copied to `<world>/gspack-convert-backup` first; delete
-that folder once the world works. It reads the id tables from the server's `kubejs` folder, so the
-server must be on GSPack 0.5 or newer. `Convert-World.ps1` is the same file as `tools/convert-world.ps1`
+that folder once the world works. The id tables are built in, so it also works on a world copied on its
+own or a server still on 0.4; when the server's `kubejs` folder is on 0.5 or newer, it uses that one
+instead. `Convert-World.ps1` is the same file as `tools/convert-world.ps1`
 in the [GSPack repository](https://github.com/steefan1998/GSPack).
 
 ## Troubleshooting
