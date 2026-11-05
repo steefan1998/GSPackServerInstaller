@@ -325,6 +325,7 @@ if ($ListVersions) {
     exit 0
 }
 
+$localPack = [bool]$Zip
 if (-not $Zip) {
     Write-Step "Fetching modpack from CurseForge (project $ProjectId)"
     $pick = $null
@@ -348,6 +349,7 @@ if (-not $Zip) {
             Where-Object { $_.Name -notmatch 'dev' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
         if (-not $Zip) { throw "No pack found on CurseForge for project $ProjectId and no local GSPack-*.zip. Use -Zip <file>." }
         Write-Warning "Using local pack instead: $Zip"
+        $localPack = $true
     }
 } else {
     $Zip = (Resolve-Path $Zip).Path
@@ -361,6 +363,9 @@ if (Test-Path $PackDir) { Remove-Item -Recurse -Force $PackDir }
 $manifestPath = Join-Path $PackDir 'manifest.json'
 if (-not (Test-Path $manifestPath)) { throw "No manifest.json in $Zip - is this a CurseForge export?" }
 $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($localPack -and ([string]$manifest.name).Trim() -ine 'GSPack') {
+    throw "Only GSPack local zips are supported. This manifest identifies the pack as '$($manifest.name)'. Download a GSPack export zip."
+}
 $mcVersion = $manifest.minecraft.version
 $loader = ($manifest.minecraft.modLoaders | Where-Object { $_.primary } | Select-Object -First 1).id
 if (-not $loader) { $loader = $manifest.minecraft.modLoaders[0].id }

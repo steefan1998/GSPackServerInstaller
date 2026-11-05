@@ -30,8 +30,16 @@ It shows the installed version and the newest one on CurseForge, and lets you:
 
 - build or update to the latest version, pick an older version, or use a local zip
 - set the RAM, accept the EULA, turn the mod download pages on/off, or build files only
-- start the server and open the server folder, with the build output shown live
+- run the server in a separate **Server console** window, with Start/Stop controls,
+  live output, commands and a **spark tps** button
+- open the server folder, with the build output shown live
 - convert an older world to GSPack 0.5's unified materials (*Convert world*, see below)
+
+The installer and server console automatically follow Windows' light/dark app theme,
+including changes while the windows are open. Stop the server in the console before updating it.
+
+Local zip imports support **GSPack only**. The installer checks the pack name in
+`manifest.json` before changing the server folder; renaming another modpack's zip does not bypass this check.
 
 **Menu:** double-click `Build-ServerPack.bat` for the same options in a text menu:
 

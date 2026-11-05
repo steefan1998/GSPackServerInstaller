@@ -112,6 +112,8 @@ if [ "$LIST" = true ]; then
   exit 0
 fi
 
+LOCAL_PACK=false
+[ -z "$ZIP" ] || LOCAL_PACK=true
 if [ -z "$ZIP" ]; then
   step "Fetching modpack from CurseForge (project $PROJECT)"
   if [ -z "$FILEID" ] && [ -n "$VERSION" ]; then
@@ -130,6 +132,7 @@ if [ -z "$ZIP" ]; then
     ZIP="$(ls -t "$SCRIPT_DIR"/GSPack-*.zip "$HOME"/Downloads/GSPack-*.zip 2>/dev/null | grep -vi dev | head -1 || true)"
     [ -n "$ZIP" ] || { echo "No pack found on CurseForge for project $PROJECT and no local GSPack-*.zip. Use --zip FILE." >&2; exit 1; }
     printf '\033[33mUsing local pack instead: %s\033[0m\n' "$ZIP"
+    LOCAL_PACK=true
   fi
 fi
 ZIP="$(cd "$(dirname "$ZIP")" && pwd)/$(basename "$ZIP")"
@@ -140,6 +143,10 @@ rm -rf "$PACK"; mkdir -p "$PACK"
 unzip -q "$ZIP" -d "$PACK"
 MANIFEST="$PACK/manifest.json"
 [ -f "$MANIFEST" ] || { echo "No manifest.json in $ZIP - is this a CurseForge export?" >&2; exit 1; }
+if [ "$LOCAL_PACK" = true ] && ! jq -e '(.name // "" | ascii_downcase | gsub("^\\s+|\\s+$"; "")) == "gspack"' "$MANIFEST" >/dev/null; then
+  echo "Only GSPack local zips are supported. Download a GSPack export zip." >&2
+  exit 1
+fi
 
 MC="$(jq -r '.minecraft.version' "$MANIFEST")"
 LOADER="$(jq -r '(.minecraft.modLoaders | map(select(.primary)) + .minecraft.modLoaders)[0].id' "$MANIFEST")"

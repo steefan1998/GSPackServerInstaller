@@ -13,10 +13,12 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
+using System.Runtime.InteropServices;
 
 [assembly: System.Reflection.AssemblyTitle("GSPack Server Installer")]
 [assembly: System.Reflection.AssemblyProduct("GSPack Server Installer")]
-[assembly: System.Reflection.AssemblyVersion("0.3.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.4.3.0")]
 
 namespace GSPackInstaller
 {
@@ -28,7 +30,92 @@ namespace GSPackInstaller
         public override string ToString() { return Name + "  (" + Date.ToString("yyyy-MM-dd") + ")"; }
     }
 
-    class MainForm : Form
+    // Both windows follow Windows' app theme, including changes while open.
+    class ThemedForm : Form
+    {
+        protected bool DarkTheme;
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyWindowsTheme();
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            SystemEvents.UserPreferenceChanged += PreferencesChanged;
+            ApplyWindowsTheme();
+        }
+
+        void PreferencesChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try { BeginInvoke((Action)ApplyWindowsTheme); }
+            catch (InvalidOperationException) { }
+        }
+
+        void ApplyWindowsTheme()
+        {
+            DarkTheme = false;
+            if (!SystemInformation.HighContrast) {
+                try {
+                    using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                        DarkTheme = key != null && Convert.ToInt32(key.GetValue("AppsUseLightTheme", 1)) == 0;
+                } catch { }
+            }
+            ApplyColors(this);
+            int dark = DarkTheme ? 1 : 0;
+            try {
+                if (DwmSetWindowAttribute(Handle, 20, ref dark, 4) != 0)
+                    DwmSetWindowAttribute(Handle, 19, ref dark, 4);
+            } catch (DllNotFoundException) { }
+              catch (EntryPointNotFoundException) { }
+            OnThemeChanged();
+            Invalidate(true);
+        }
+
+        void ApplyColors(Control control)
+        {
+            // Keep the branded header and logo in their original colors.
+            if (Equals(control.Tag, "brand")) return;
+            bool highContrast = SystemInformation.HighContrast;
+            Color surface = DarkTheme ? Color.FromArgb(30, 30, 34) : SystemColors.Control;
+            Color field = DarkTheme ? Color.FromArgb(42, 42, 48) : SystemColors.Window;
+            Color foreground = DarkTheme ? Color.FromArgb(235, 235, 240) : SystemColors.ControlText;
+            bool editor = control is TextBoxBase || control is ComboBox || control is NumericUpDown;
+            control.BackColor = editor ? field : surface;
+            control.ForeColor = foreground;
+            var button = control as Button;
+            if (button != null) {
+                button.UseVisualStyleBackColor = !DarkTheme;
+                button.FlatStyle = DarkTheme ? FlatStyle.Flat : FlatStyle.Standard;
+                button.FlatAppearance.BorderColor = DarkTheme ? Color.FromArgb(90, 90, 100) : SystemColors.ControlDark;
+                button.FlatAppearance.MouseOverBackColor = DarkTheme ? Color.FromArgb(60, 60, 68) : SystemColors.ControlLight;
+            }
+            var link = control as LinkLabel;
+            if (link != null) {
+                link.LinkColor = highContrast ? SystemColors.HotTrack : DarkTheme ? Color.FromArgb(130, 190, 255) : Color.Blue;
+                link.ActiveLinkColor = link.LinkColor;
+                link.VisitedLinkColor = link.LinkColor;
+            }
+            foreach (Control child in control.Controls) ApplyColors(child);
+        }
+
+        protected Color WarningColor { get { return SystemInformation.HighContrast ? SystemColors.ControlText : DarkTheme ? Color.FromArgb(255, 194, 92) : Color.FromArgb(155, 80, 0); } }
+        protected Color SuccessColor { get { return SystemInformation.HighContrast ? SystemColors.ControlText : DarkTheme ? Color.FromArgb(113, 218, 146) : Color.ForestGreen; } }
+        protected virtual void OnThemeChanged() { }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) SystemEvents.UserPreferenceChanged -= PreferencesChanged;
+            base.Dispose(disposing);
+        }
+    }
+
+    class MainForm : ThemedForm
     {
         const int ProjectId = 1777849;
         const string CfFiles = "https://www.curseforge.com/api/v1/mods/{0}/files?pageIndex=0&pageSize=50&sort=dateCreated&sortDescending=true&removeAlphas=true";
@@ -42,7 +129,7 @@ namespace GSPackInstaller
         ComboBox versionCombo;
         NumericUpDown ramBox;
         CheckBox eulaCheck, browserCheck, filesOnlyCheck;
-        Button buildButton, startButton, folderButton, refreshButton, stopButton, consoleButton, convertButton;
+        Button buildButton, folderButton, refreshButton, consoleButton, convertButton;
         Process running;
         ConsoleForm console;
         List<PackRelease> releases = new List<PackRelease>();
@@ -57,7 +144,7 @@ namespace GSPackInstaller
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
             // Header with the pack logo
-            var header = new Panel { Dock = DockStyle.Top, Height = 84, BackColor = Color.FromArgb(32, 24, 56) };
+            var header = new Panel { Tag = "brand", Dock = DockStyle.Top, Height = 84, BackColor = Color.FromArgb(32, 24, 56) };
             var logo = new PictureBox { Location = new Point(12, 10), Size = new Size(64, 64), SizeMode = PictureBoxSizeMode.Zoom };
             string iconFile = Path.Combine(appDir, "server-icon.png");
             if (File.Exists(iconFile)) { try { logo.Image = Image.FromFile(iconFile); } catch { } }
@@ -117,14 +204,10 @@ namespace GSPackInstaller
             // Actions
             buildButton = new Button { Text = "Build / Update server", Location = new Point(12, 318), Size = new Size(190, 34), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
             buildButton.Click += delegate { Build(); };
-            stopButton = new Button { Text = "Stop", Location = new Point(208, 318), Size = new Size(70, 34), Enabled = false };
-            stopButton.Click += delegate { StopBuild(); };
-            startButton = new Button { Text = "Start server", Location = new Point(290, 318), Size = new Size(130, 34) };
-            startButton.Click += delegate { StartServer(); };
-            consoleButton = new Button { Text = "Server console", Location = new Point(572, 318), Size = new Size(126, 34) };
+            consoleButton = new Button { Text = "Server console", Location = new Point(208, 318), Size = new Size(150, 34) };
             consoleButton.Click += delegate { OpenConsole(); };
             // Convert-World.bat: converts the world to GSPack 0.5's unified materials (dry run first, then asks).
-            convertButton = new Button { Text = "Convert world", Location = new Point(704, 318), Size = new Size(104, 34) };
+            convertButton = new Button { Text = "Convert world", Location = new Point(516, 318), Size = new Size(130, 34) };
             convertButton.Click += delegate {
                 string bat = Path.Combine(appDir, "Convert-World.bat");
                 if (!File.Exists(bat)) { MessageBox.Show(this, "Convert-World.bat was not found next to this program:\n" + appDir, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -138,7 +221,7 @@ namespace GSPackInstaller
                 // The bat runs a dry run first and asks before it writes anything; changed files are backed up.
                 Process.Start(new ProcessStartInfo("cmd.exe", "/c \"\"" + bat + "\" \"" + folder + "\"\"") { UseShellExecute = true });
             };
-            folderButton = new Button { Text = "Open server folder", Location = new Point(426, 318), Size = new Size(140, 34) };
+            folderButton = new Button { Text = "Open server folder", Location = new Point(364, 318), Size = new Size(146, 34) };
             folderButton.Click += delegate {
                 if (Directory.Exists(serverDirBox.Text)) Process.Start("explorer.exe", "\"" + serverDirBox.Text + "\"");
                 else MessageBox.Show(this, "There is no server folder yet. Build the server first.", Text);
@@ -149,7 +232,7 @@ namespace GSPackInstaller
                 Font = new Font("Consolas", 9f), BackColor = Color.FromArgb(20, 20, 28), ForeColor = Color.Gainsboro, WordWrap = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
 
-            body.Controls.AddRange(new Control[] { folderGroup, packGroup, setGroup, buildButton, stopButton, startButton, folderButton, consoleButton, convertButton, log });
+            body.Controls.AddRange(new Control[] { folderGroup, packGroup, setGroup, buildButton, folderButton, consoleButton, convertButton, log });
             ActiveControl = buildButton;
 
             Shown += delegate {
@@ -164,6 +247,11 @@ namespace GSPackInstaller
                     MessageBox.Show(this, "A build is still running. Stop it and close?", Text, MessageBoxButtons.YesNo) == DialogResult.No) e.Cancel = true;
                 else StopBuild();
             };
+        }
+
+        protected override void OnThemeChanged()
+        {
+            if (updateLabel != null) updateLabel.ForeColor = WarningColor;
         }
 
         // "GSPack 0.4" -> 0.4
@@ -230,6 +318,10 @@ namespace GSPackInstaller
 
         void Build()
         {
+            if (console != null && console.ServerRunning) {
+                MessageBox.Show(this, "Stop the server in the server console before updating it.", Text);
+                return;
+            }
             var args = new StringBuilder("-NoProfile -ExecutionPolicy Bypass -File " + Quote(ScriptPath));
             args.Append(" -OutDir " + Quote(serverDirBox.Text));
             args.Append(" -RamMB " + ((int)ramBox.Value * 1024));
@@ -280,8 +372,8 @@ namespace GSPackInstaller
         void SetBusy(bool busy)
         {
             buildButton.Enabled = !busy;
-            stopButton.Enabled = busy;
-            startButton.Enabled = !busy;
+            consoleButton.Enabled = !busy;
+            convertButton.Enabled = !busy;
         }
 
         // True when the server exists and its EULA is accepted (asks the user if it isn't yet)
@@ -296,15 +388,6 @@ namespace GSPackInstaller
                 eulaCheck.Checked = true;
             }
             return true;
-        }
-
-        void StartServer()
-        {
-            if (console != null && console.ServerRunning) { MessageBox.Show(this, "The server is already running in the server console.", Text); return; }
-            if (!ReadyToStart()) return;
-            string dir = serverDirBox.Text;
-            Process.Start(new ProcessStartInfo(Path.Combine(dir, "start.bat")) { WorkingDirectory = dir, UseShellExecute = true });
-            AppendLog("Server started in its own window." + Environment.NewLine);
         }
 
         void OpenConsole()
@@ -322,7 +405,7 @@ namespace GSPackInstaller
     }
 
     // Runs the server inside the program: live log, a command box, and a clean stop.
-    class ConsoleForm : Form
+    class ConsoleForm : ThemedForm
     {
         readonly string dir;
         TextBox output, input;
@@ -359,7 +442,7 @@ namespace GSPackInstaller
             status = new Label { Location = new Point(210, 15), AutoSize = true, Text = "Stopped" };
             top.Controls.AddRange(new Control[] { startButton, stopButton, status });
             // Quick commands, right-aligned
-            string[] quick = { "list", "save-all", "tps" };
+            string[] quick = { "list", "save-all", "spark tps" };
             for (int i = 0; i < quick.Length; i++) {
                 string c = quick[i];
                 var b = new Button { Text = c, Size = new Size(80, 30), Location = new Point(top.Width - (quick.Length - i) * 86 - 4, 8), Anchor = AnchorStyles.Top | AnchorStyles.Right };
@@ -439,7 +522,17 @@ namespace GSPackInstaller
             input.Focus();
         }
 
-        void SetStatus(string s, Color c) { status.Text = s; status.ForeColor = c; }
+        protected override void OnThemeChanged()
+        {
+            if (status != null) SetStatus(status.Text, Color.Empty);
+        }
+
+        void SetStatus(string s, Color c)
+        {
+            status.Text = s;
+            status.ForeColor = s == "Running" ? SuccessColor :
+                s == "Starting..." || s == "Stopping..." ? WarningColor : ForeColor;
+        }
 
         void Send(string cmd)
         {
