@@ -3,6 +3,8 @@
 Builds a ready-to-run Minecraft server from the **GSPack** modpack (or any other CurseForge modpack).
 Works on **Windows** (PowerShell) and **Linux/macOS** (bash). No CurseForge API key needed.
 
+![GSPack Server Installer following the Windows dark theme](docs/images/installer.png)
+
 ## What it does
 
 1. Gets the pack: the latest GSPack release straight from CurseForge
