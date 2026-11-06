@@ -465,6 +465,15 @@ foreach ($f in $manifest.files) {
 
 # 3. Overrides ----------------------------------------------------------------
 Write-Step 'Copying overrides'
+# Rebuild KubeJS so scripts removed from the pack cannot survive an update.
+$kubejsDir = [IO.Path]::GetFullPath((Join-Path $OutDir 'kubejs'))
+if ([IO.Path]::GetDirectoryName($kubejsDir) -ne [IO.Path]::GetFullPath($OutDir).TrimEnd([IO.Path]::DirectorySeparatorChar)) {
+    throw "KubeJS cleanup must stay inside the server folder: $OutDir"
+}
+if (Test-Path -LiteralPath $kubejsDir) {
+    Write-Host '  Removing old kubejs folder'
+    Remove-Item -LiteralPath $kubejsDir -Recurse -Force
+}
 foreach ($ov in @($manifest.overrides, 'server-overrides')) {
     if (-not $ov) { continue }
     $src = Join-Path $PackDir $ov

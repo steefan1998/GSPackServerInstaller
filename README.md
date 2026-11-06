@@ -122,6 +122,10 @@ the menu, or Build in the GUI). Downloads are cached in `.cache/`, so it's quick
 `mods/` is rebuilt every time; your world, `server.properties` and whitelist are left alone.
 Put your own server-only mods in `GSPackServer/extra-mods/`; they're copied in on every build.
 
+The server's `kubejs/` folder is removed before copying the new pack overrides on every
+build/update. This removes obsolete scripts; keep backups of any personal KubeJS changes
+outside that folder. The new pack's `kubejs/` is then copied in, if provided.
+
 ## Converting a world (GSPack 0.5)
 
 GSPack 0.5 unifies materials: one item per metal, dust or plate (AllTheOres first), and ores that

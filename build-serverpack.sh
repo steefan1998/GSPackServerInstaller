@@ -235,6 +235,11 @@ done < <(jq -r '.files[] | "\(.projectID) \(.fileID)"' "$MANIFEST")
 
 # 3. Overrides ----------------------------------------------------------------
 step 'Copying overrides'
+# OUT is the absolute server folder resolved above. Rebuild KubeJS from the pack.
+if [ -e "$OUT/kubejs" ] || [ -L "$OUT/kubejs" ]; then
+  echo '  Removing old kubejs folder'
+  rm -rf -- "$OUT/kubejs"
+fi
 for ov in "$(jq -r '.overrides // "overrides"' "$MANIFEST")" server-overrides; do
   if [ -d "$PACK/$ov" ]; then echo "  $ov/ -> server"; cp -rf "$PACK/$ov/." "$OUT/"; fi
 done
