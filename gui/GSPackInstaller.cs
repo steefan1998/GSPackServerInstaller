@@ -18,7 +18,7 @@ using System.Runtime.InteropServices;
 
 [assembly: System.Reflection.AssemblyTitle("GSPack Server Installer")]
 [assembly: System.Reflection.AssemblyProduct("GSPack Server Installer")]
-[assembly: System.Reflection.AssemblyVersion("0.4.4.0")]
+[assembly: System.Reflection.AssemblyVersion("0.4.5.0")]
 
 namespace GSPackInstaller
 {
